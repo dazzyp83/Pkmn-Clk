@@ -13,15 +13,15 @@ const CANVAS_HEIGHT = 144;
 // Set this to a value > 1 for better visibility on a computer monitor during development.
 // Set to 1 (or remove scaling in draw()) when deploying to actual Game Boy hardware,
 // as the hardware drivers will handle the final scaling.
-const DISPLAY_ZOOM_FACTOR = 5;
+const DISPLAY_ZOOM_FACTOR = 3;
 
 // All coordinates and sizes below are now in raw 1x Game Boy logical pixel values.
 
 // Name-box coordinates (1x Game Boy logical space):
-const BACK_NAME_END_X    = 144;  // your Pokémon (back), right-aligned here
-const BACK_NAME_Y        = 63;
+const BACK_NAME_END_X    = 149;  // your Pokémon (back), right-aligned here
+const BACK_NAME_Y        = 72;
 
-const FRONT_NAME_START_X = 14;   // opponent (front), left-& right-bounds here
+const FRONT_NAME_START_X = 11;   // opponent (front), left-& right-bounds here
 const FRONT_NAME_END_X   = 80;
 const FRONT_NAME_Y       = 7;
 
@@ -30,27 +30,27 @@ const FRONT_NAME_Y       = 7;
 const BACK_SPRITE_W = 50;   // Player's Pokémon (original size)
 const BACK_SPRITE_H = 50;
 const BACK_SPRITE_BASE_X = 10;
-const BACK_SPRITE_BASE_Y = 43;
+const BACK_SPRITE_BASE_Y = 50;
 
-const FRONT_SPRITE_W = 40;  // Opponent's Pokémon (original size)
-const FRONT_SPRITE_H = 40;
-const FRONT_SPRITE_BASE_X = 111;
-const FRONT_SPRITE_BASE_Y = 5;
+const FRONT_SPRITE_W = 50;  // Opponent's Pokémon (original size)
+const FRONT_SPRITE_H = 50;
+const FRONT_SPRITE_BASE_X = 98;
+const FRONT_SPRITE_BASE_Y = 10;
 
 // HP Bar dimensions and positions (1x Game Boy logical space):
-const HP_LABEL_TEXT_SIZE = 6;
+const HP_LABEL_TEXT_SIZE = 6; 
 
-const FRONT_HP_LABEL_X = 28;
+const FRONT_HP_LABEL_X = 40; // These coordinates are now effectively just for HP bar alignment
 const FRONT_HP_LABEL_Y = 19;
 
 const FRONT_HP_BAR_X = 30;
-const FRONT_HP_BAR_Y = 19;
+const FRONT_HP_BAR_Y = 17;
 
-const BACK_HP_LABEL_X = 88;
+const BACK_HP_LABEL_X = 88; // These coordinates are now effectively just for HP bar alignment
 const BACK_HP_LABEL_Y = 78;
 
-const BACK_HP_BAR_X = 90;
-const BACK_HP_BAR_Y = 78;
+const BACK_HP_BAR_X = 93;
+const BACK_HP_BAR_Y = 83.5;
 
 const HP_BAR_W = 50;
 const HP_BAR_H = 5;
@@ -59,12 +59,12 @@ const HP_BAR_RADIUS = 2.5; // Half of HP_BAR_H for rounding
 // Clock position and text size (1x Game Boy logical space):
 const CLOCK_TEXT_SIZE = 24;
 const CLOCK_X_POS = 80;    // Center of 160
-const CLOCK_Y_POS = 120;
+const CLOCK_Y_POS = 121;
 
 // Winner text position and size (1x Game Boy logical space):
-const WINNER_TEXT_SIZE = 8; // User requested size
+const WINNER_TEXT_SIZE = 10; // Changed to 10 as requested
 const WINNER_TEXT_X = 80;
-const WINNER_TEXT_Y = 103;
+const WINNER_TEXT_Y = CLOCK_Y_POS; // Align winner text with clock position
 
 // Winner text box dimensions (These constants are now only for reference/history, not used for drawing)
 const WINNER_BOX_WIDTH = 100;
@@ -158,6 +158,13 @@ let pokedexEntryText = "Loading Pokedex Entry...";
 let isLoadingPokedex = false;
 let pokedexEntryLoadedTime = 0;
 const POKEDEX_DISPLAY_DURATION = 5000;
+
+// Flag to control clock visibility
+let showTime = true;
+
+// NEW: Winner text flashing variables
+let isFlashingWinnerText = false;
+const winnerFlashInterval = 150; // Milliseconds for each flash (on/off)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 3) PRELOAD — load BG, FONT, & JSON roster
@@ -325,24 +332,37 @@ function drawBattleScreen() {
 
   // Draw sprites using their now absolute pixel positions and dimensions
   if (backSprite && backCurrentX > (BACK_SPRITE_OFFSCREEN_LEFT_X - BACK_SPRITE_W) && drawBackSprite) {
-    // Combine base transition X with the attack animation offset.
     image(backSprite,  backCurrentX + (currentBackSpriteDrawX - BACK_SPRITE_BASE_X), BACK_SPRITE_BASE_Y, BACK_SPRITE_W, BACK_SPRITE_H);
   }
   if (frontSprite && frontCurrentY > (FRONT_SPRITE_OFFSCREEN_TOP_Y - FRONT_SPRITE_H) && drawFrontSprite) {
-    // Combine base transition Y with the attack animation offset.
     image(frontSprite, currentFrontSpriteDrawX, frontCurrentY, FRONT_SPRITE_W, FRONT_SPRITE_H);
   }
 
   // UI overlays
   drawNames();
   drawHp();
-  drawClock();
+  
+  // Conditionally draw the clock based on showTime flag
+  if (showTime) {
+    drawClock();
+  }
 
   // Winner display logic
   if (winner && millis() - winnerDisplayTime < winnerDisplayDuration) {
-    drawWinnerText();
+    // Check if the current time is within the display duration
+    let elapsedTime = millis() - winnerDisplayTime;
+    let flashOn = (elapsedTime % (2 * winnerFlashInterval)) < winnerFlashInterval;
+
+    if (flashOn) { // Only draw if flash is "on"
+      drawWinnerText();
+    }
+    
     animateWinnerHp();
+    showTime = false; // Hide time during winner display
+  } else {
+    showTime = true; // Show time otherwise
   }
+
 
   // Battle logic: Only allow takeTurn if battle is active AND not currently processing battle end
   if (battleActive && !processingBattleEnd && !turnLock && millis() - lastTurnTime > turnInterval && millis() - battleEndedTimestamp > 50) {
@@ -375,7 +395,9 @@ function drawDayScreen() {
     const days = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
     text(days[currentDayIndex], DAY_BOX_X + DAY_BOX_WIDTH / 2, DAY_BOX_Y + DAY_BOX_HEIGHT - (DAY_TEXT_SIZE_DAY / 2) - 2);
 
-    drawClock();
+    if (showTime) { // Conditionally draw clock
+      drawClock();
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -420,7 +442,9 @@ function drawPokedexScreen() {
             pokedexEntryText = "Loading Pokedex Entry...";
         }
     }
-    drawClock();
+    if (showTime) { // Conditionally draw clock
+      drawClock();
+    }
 }
 
 
@@ -452,13 +476,6 @@ function drawNames() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function drawHp() {
-  textSize(HP_LABEL_TEXT_SIZE);
-  fill(0);
-  textAlign(RIGHT, TOP);
-
-  text('HP', FRONT_HP_LABEL_X, FRONT_HP_LABEL_Y);
-  text('HP', BACK_HP_LABEL_X, BACK_HP_LABEL_Y);
-
   drawHpBar(FRONT_HP_BAR_X, FRONT_HP_BAR_Y, HP_BAR_W, HP_BAR_H, hpFront);
   drawHpBar(BACK_HP_BAR_X, BACK_HP_BAR_Y, HP_BAR_W, HP_BAR_H, hpBack);
 }
@@ -652,6 +669,9 @@ function takeTurn() {
     winnerDisplayTime = millis();
     battleEndedTimestamp = millis();
 
+    // Start winner text flashing
+    isFlashingWinnerText = true; 
+
     if (hpFront <= 0 && hpBack <= 0) {
       console.log("Both Pokémon fainted! New battle starts.");
       winner = null;
@@ -701,11 +721,11 @@ function mouseClicked() {
 function drawWinnerText() {
   if (!winner) return;
 
-  // REMOVED: Draw background box for winner text
-  // fill(220); // Light grey background
-  // stroke(0); // Black border
-  // strokeWeight(1); // Thin border
-  // rect(WINNER_BOX_X, WINNER_BOX_Y, WINNER_BOX_WIDTH, WINNER_BOX_HEIGHT, HP_BAR_RADIUS);
+  // Only draw text if isFlashingWinnerText is true AND the current flash cycle is "on"
+  let flashOn = (millis() - winnerDisplayTime) % (2 * winnerFlashInterval) < winnerFlashInterval;
+  if (!isFlashingWinnerText || !flashOn) { // If not flashing, or if it's the "off" phase, return
+      return;
+  }
 
   textSize(WINNER_TEXT_SIZE);
   textAlign(CENTER, CENTER);
