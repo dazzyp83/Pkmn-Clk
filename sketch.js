@@ -4,10 +4,20 @@
 // 1) GLOBAL CONFIGURATION
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Canvas scale: 1 = 160×144, 2 = 320×288, etc.
-let size_ratio   = 2;
+// Canvas dimensions: Match the Game Boy Color's native resolution.
+// This is the logical resolution for all drawing. External hardware/drivers will scale this to the physical screen.
+const CANVAS_WIDTH = 160;
+const CANVAS_HEIGHT = 144;
 
-// Name-box coordinates (in 160×144 space):
+// !!! DEVELOPMENT ZOOM FACTOR !!!
+// Set this to a value > 1 for better visibility on a computer monitor during development.
+// Set to 1 (or remove scaling in draw()) when deploying to actual Game Boy hardware,
+// as the hardware drivers will handle the final scaling.
+const DISPLAY_ZOOM_FACTOR = 5;
+
+// All coordinates and sizes below are now in raw 1x Game Boy logical pixel values.
+
+// Name-box coordinates (1x Game Boy logical space):
 const BACK_NAME_END_X    = 144;  // your Pokémon (back), right-aligned here
 const BACK_NAME_Y        = 63;
 
@@ -15,12 +25,81 @@ const FRONT_NAME_START_X = 14;   // opponent (front), left-& right-bounds here
 const FRONT_NAME_END_X   = 80;
 const FRONT_NAME_Y       = 7;
 
+// Sprite dimensions and base positions (1x Game Boy logical space):
+// IMPORTANT: Your sprite image files must be pre-scaled to these exact pixel dimensions.
+const BACK_SPRITE_W = 50;   // Player's Pokémon (original size)
+const BACK_SPRITE_H = 50;
+const BACK_SPRITE_BASE_X = 10;
+const BACK_SPRITE_BASE_Y = 43;
+
+const FRONT_SPRITE_W = 40;  // Opponent's Pokémon (original size)
+const FRONT_SPRITE_H = 40;
+const FRONT_SPRITE_BASE_X = 111;
+const FRONT_SPRITE_BASE_Y = 5;
+
+// HP Bar dimensions and positions (1x Game Boy logical space):
+const HP_LABEL_TEXT_SIZE = 6;
+
+const FRONT_HP_LABEL_X = 28;
+const FRONT_HP_LABEL_Y = 19;
+
+const FRONT_HP_BAR_X = 30;
+const FRONT_HP_BAR_Y = 19;
+
+const BACK_HP_LABEL_X = 88;
+const BACK_HP_LABEL_Y = 78;
+
+const BACK_HP_BAR_X = 90;
+const BACK_HP_BAR_Y = 78;
+
+const HP_BAR_W = 50;
+const HP_BAR_H = 5;
+const HP_BAR_RADIUS = 2.5; // Half of HP_BAR_H for rounding
+
+// Clock position and text size (1x Game Boy logical space):
+const CLOCK_TEXT_SIZE = 24;
+const CLOCK_X_POS = 80;    // Center of 160
+const CLOCK_Y_POS = 120;
+
+// Winner text position and size (1x Game Boy logical space):
+const WINNER_TEXT_SIZE = 8; // User requested size
+const WINNER_TEXT_X = 80;
+const WINNER_TEXT_Y = 103;
+
+// Winner text box dimensions (These constants are now only for reference/history, not used for drawing)
+const WINNER_BOX_WIDTH = 100;
+const WINNER_BOX_HEIGHT = 20;
+const WINNER_BOX_X = (CANVAS_WIDTH / 2) - (WINNER_BOX_WIDTH / 2); // Center X
+const WINNER_BOX_Y = WINNER_TEXT_Y - (WINNER_BOX_HEIGHT / 2) + 2; // Center Y around text, adjusted for baseline
+
+// Day Screen Box (1x Game Boy logical space):
+const DAY_BOX_WIDTH = 120;
+const DAY_BOX_HEIGHT = 30;
+const DAY_BOX_X = (160 - 120) / 2; // 20
+const DAY_BOX_Y = ((144 - 30) / 2) - 10; // 57 - 10 = 47
+const DAY_TEXT_SIZE_LABEL = 8;
+const DAY_TEXT_SIZE_DAY = 14;
+
+// Pokedex Screen (1x Game Boy logical space):
+const POKEDEX_TITLE_TEXT_SIZE = 10;
+const POKEDEX_TITLE_X = 80;
+const POKEDEX_TITLE_Y = 20;
+const POKEDEX_LOADING_TEXT_SIZE = 8;
+const POKEDEX_LOADING_TEXT_X = 80;
+const POKEDEX_LOADING_TEXT_Y = 72;
+const POKEDEX_TEXT_SIZE = 8;
+const POKEDEX_TEXT_WIDTH_LIMIT = 140;
+const POKEDEX_TEXT_START_X = 10;
+const POKEDEX_TEXT_START_Y = 40;
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 2) STATE & ASSETS
 // ─────────────────────────────────────────────────────────────────────────────
 
-let bg, gameboyFont;
+let bg; // Background image (must be 160x144 pixels)
 let pokemonList = [];      // loaded in preload()
+let gameboyFont; // Variable to hold the loaded font
 
 // Current battle info:
 let frontSprite, backSprite;
@@ -29,58 +108,70 @@ let hpFront,    hpBack;
 let frontPokemonData, backPokemonData; // To store the full Pokémon objects
 
 // Battle variables
-let currentTurn    = 0; // 0 for front (opponent), 1 for back (your pokemon)
-const turnInterval = 5 * 60 * 1000; // 5 minutes in milliseconds
+let currentTurn    = 0;
+const turnInterval = 5 * 60 * 1000;
 let lastTurnTime   = 0;
 let battleActive   = false;
-let winner         = null; // Stores the winning Pokémon data for the next round
-let lastWinnerPosition = null; // Stores 'front' or 'back'
-let winnerDisplayTime = 0; // Time when winner was announced
-const winnerDisplayDuration = 2000; // 2 seconds
-let winnerHpFillStart = 0; // HP before win, for animation
-let processingBattleEnd = false; // Flag to prevent further turns during battle end sequence
-let battleEndedTimestamp = 0; // Timestamp when a battle officially ended
+let winner         = null;
+let lastWinnerPosition = null;
+let winnerDisplayTime = 0;
+const winnerDisplayDuration = 2000;
+let winnerHpFillStart = 0;
+let processingBattleEnd = false;
+let battleEndedTimestamp = 0;
+let turnLock = false;
 
-// Attack animation variables
+// Attack animation variables (offsets are now 1x logical pixels)
 let isAnimatingAttack = false;
 let attackAnimationStartTime = 0;
-const attackAnimationDuration = 300; // milliseconds for the lunge animation
-let attackingPokemon = null; // 'front' or 'back'
-let hitAnimationTriggered = false; // Ensures hit animation is started only once per attack
+const attackAnimationDuration = 300;
+const ATTACK_LUNGE_OFFSET = 10; // 10 pixels for the lunge
+let attackingPokemon = null;
+let hitAnimationTriggered = false;
 
 // Hit animation variables
 let isAnimatingHit = false;
 let hitAnimationStartTime = 0;
-const hitAnimationDuration = 400; // Total duration of the hit flash (e.g., 2 flashes)
-const flashInterval = 100; // How long each flash (on/off) lasts
-let defendingPokemon = null; // 'front' or 'back' - the pokemon that is being hit
+const hitAnimationDuration = 400;
+const flashInterval = 100;
+let defendingPokemon = null;
 
-// Front sprite transition variables
-let frontCurrentY = 5; // The dynamic Y position of the front sprite
-let frontTransitionPhase = 'idle'; // 'idle', 'exiting', 'entering'
+// Front sprite transition variables (Y positions are now 1x logical pixels)
+let frontCurrentY = FRONT_SPRITE_BASE_Y;
+let frontTransitionPhase = 'idle';
 let frontTransitionStartTime = 0;
-const FRONT_TRANSITION_DURATION = 500; // ms for slide animation
-const FRONT_SPRITE_ORIGINAL_Y = 5; // Base Y position for front sprite
-const FRONT_SPRITE_OFFSCREEN_TOP_Y = -50; // Y when off-screen upwards
+const FRONT_TRANSITION_DURATION = 500;
+const FRONT_SPRITE_OFFSCREEN_TOP_Y = 0 - FRONT_SPRITE_H - 10; // Off-screen upwards
 
-// Back sprite transition variables
-let backCurrentX = 10; // The dynamic X position of the back sprite
-let backTransitionPhase = 'idle'; // 'idle', 'exiting', 'entering'
+// Back sprite transition variables (X positions are now 1x logical pixels)
+let backCurrentX = BACK_SPRITE_BASE_X;
+let backTransitionPhase = 'idle';
 let backTransitionStartTime = 0;
-const BACK_TRANSITION_DURATION = 500; // ms for slide animation
-const BACK_SPRITE_ORIGINAL_X = 10; // Base X position for back sprite
-const BACK_SPRITE_OFFSCREEN_LEFT_X = -50; // X when off-screen to the left
+const BACK_TRANSITION_DURATION = 500;
+const BACK_SPRITE_OFFSCREEN_LEFT_X = 0 - BACK_SPRITE_W - 10; // Off-screen to the left
+
+// Screen Management
+let currentScreen = 'battle';
+
+// Pokedex Screen Variables
+let pokedexEntryText = "Loading Pokedex Entry...";
+let isLoadingPokedex = false;
+let pokedexEntryLoadedTime = 0;
+const POKEDEX_DISPLAY_DURATION = 5000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 3) PRELOAD — load BG, FONT, & JSON roster
 // ─────────────────────────────────────────────────────────────────────────────
 
 function preload() {
-  // 3.1) background + font
-  bg          = loadImage('bg.png');
-  gameboyFont = loadFont('PressStart2P-Regular.ttf');
+  // 3.1) background (must be 160x144 pixels)
+  bg = loadImage('bg.png');
 
-  // 3.2) synchronous JSON load (blocks until parsed)
+  // 3.2) Load the custom Game Boy font
+  // Ensure 'PressStart2P-Regular.ttf' is in the same directory as sketch.js
+  gameboyFont = loadFont('PressStart2P-Regular.ttf'); 
+
+  // 3.3) synchronous JSON load (blocks until parsed)
   pokemonList = loadJSON('pokemonList.json');
 }
 
@@ -90,56 +181,77 @@ function preload() {
 
 function setup() {
   pixelDensity(1);
-  createCanvas(160 * size_ratio, 144 * size_ratio);
+  // Create canvas with temporary zoom for development visibility
+  createCanvas(CANVAS_WIDTH * DISPLAY_ZOOM_FACTOR, CANVAS_HEIGHT * DISPLAY_ZOOM_FACTOR);
   noSmooth();
-  textFont(gameboyFont);
+  textFont(gameboyFont); // Apply the loaded font here
+  textAlign(CENTER, CENTER);
+  blendMode(BLEND); // Set blend mode once in setup for transparent images
 
-  // in case loadJSON returned an object, coerce to array:
   if (!Array.isArray(pokemonList)) {
     pokemonList = Object.values(pokemonList);
   }
 
-  // initial pick
   startNewBattle();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5) DRAW LOOP — background, sprites, UI
+// 5) DRAW LOOP — dispatches to current screen
 // ─────────────────────────────────────────────────────────────────────────────
 
 function draw() {
-  background(0);
+  background(0); // This fills the entire canvas with black
 
-  // Calculate current sprite X positions, applying attack animation offset if active
-  let currentFrontSpriteX = 111;
-  // Use a local variable to apply attack animation offset
-  let currentBackSpriteXForAttack = 10;
+  push(); // Save current transformation state
+  scale(DISPLAY_ZOOM_FACTOR); // Apply temporary zoom for development visibility
+
+  switch (currentScreen) {
+    case 'battle':
+      drawBattleScreen();
+      break;
+    case 'day':
+      drawDayScreen();
+      break;
+    case 'pokedex':
+      drawPokedexScreen();
+      break;
+  }
+
+  pop(); // Restore original transformation state
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5.1) drawBattleScreen — renders the main battle UI and animations
+// ─────────────────────────────────────────────────────────────────────────────
+function drawBattleScreen() {
+  // The bg.png is now the full 160x144 Game Boy "screen"
+  image(bg, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // Draw background image (must be 160x144 pixels)
+
+  // Calculate current sprite X/Y positions, applying attack animation offset if active
+  let currentFrontSpriteDrawX = FRONT_SPRITE_BASE_X;
+  let currentBackSpriteDrawX = BACK_SPRITE_BASE_X;
 
   if (isAnimatingAttack) {
       let elapsedTime = millis() - attackAnimationStartTime;
       if (elapsedTime < attackAnimationDuration) {
           let progress = elapsedTime / attackAnimationDuration;
-          // Use a sine wave to create a smooth outward and return motion
-          let offset = sin(progress * PI) * 10; // Max 10 pixels outward and back
+          let offset = sin(progress * PI) * ATTACK_LUNGE_OFFSET;
 
           if (attackingPokemon === 'front') {
-              currentFrontSpriteX -= offset; // Move left for front attacker
+              currentFrontSpriteDrawX -= offset;
           } else if (attackingPokemon === 'back') {
-              currentBackSpriteXForAttack += offset; // Move right for back attacker
+              currentBackSpriteDrawX += offset;
           }
 
-          // Trigger hit animation when attacker reaches peak of lunge (approx halfway)
-          if (!hitAnimationTriggered && progress >= 0.4 && progress <= 0.6 ) { // Check around 0.5 to trigger once
+          if (!hitAnimationTriggered && progress >= 0.4 && progress <= 0.6 ) {
                isAnimatingHit = true;
                hitAnimationStartTime = millis();
-               hitAnimationTriggered = true; // Set flag to true to prevent re-triggering
+               hitAnimationTriggered = true;
           }
-
       } else {
-          // Attack animation finished
           isAnimatingAttack = false;
-          attackingPokemon = null; // Reset attacker flag
-          hitAnimationTriggered = false; // Reset for next attack
+          attackingPokemon = null;
+          hitAnimationTriggered = false;
       }
   }
 
@@ -148,44 +260,43 @@ function draw() {
       let elapsedTime = millis() - frontTransitionStartTime;
       if (elapsedTime < FRONT_TRANSITION_DURATION) {
           let progress = elapsedTime / FRONT_TRANSITION_DURATION;
-          frontCurrentY = map(progress, 0, 1, FRONT_SPRITE_ORIGINAL_Y, FRONT_SPRITE_OFFSCREEN_TOP_Y); // Slide up
+          frontCurrentY = map(progress, 0, 1, FRONT_SPRITE_BASE_Y, FRONT_SPRITE_OFFSCREEN_TOP_Y);
       } else {
-          frontCurrentY = FRONT_SPRITE_OFFSCREEN_TOP_Y; // Ensure it stays off-screen
+          frontCurrentY = FRONT_SPRITE_OFFSCREEN_TOP_Y;
       }
   } else if (frontTransitionPhase === 'entering') {
       let elapsedTime = millis() - frontTransitionStartTime;
       if (elapsedTime < FRONT_TRANSITION_DURATION) {
           let progress = elapsedTime / FRONT_TRANSITION_DURATION;
-          frontCurrentY = map(progress, 0, 1, FRONT_SPRITE_OFFSCREEN_TOP_Y, FRONT_SPRITE_ORIGINAL_Y); // Slide down
+          frontCurrentY = map(progress, 0, 1, FRONT_SPRITE_OFFSCREEN_TOP_Y, FRONT_SPRITE_BASE_Y);
       } else {
-          frontCurrentY = FRONT_SPRITE_ORIGINAL_Y; // Ensure it ends at original position
-          frontTransitionPhase = 'idle'; // Animation complete
+          frontCurrentY = FRONT_SPRITE_BASE_Y;
+          frontTransitionPhase = 'idle';
       }
-  } else { // 'idle' phase
-      frontCurrentY = FRONT_SPRITE_ORIGINAL_Y;
+  } else {
+      frontCurrentY = FRONT_SPRITE_BASE_Y;
   }
 
     // Back sprite slide animation logic
-    // This position is independent of attack animation, it's for switch-in/out
     if (backTransitionPhase === 'exiting') {
         let elapsedTime = millis() - backTransitionStartTime;
         if (elapsedTime < BACK_TRANSITION_DURATION) {
             let progress = elapsedTime / BACK_TRANSITION_DURATION;
-            backCurrentX = map(progress, 0, 1, BACK_SPRITE_ORIGINAL_X, BACK_SPRITE_OFFSCREEN_LEFT_X); // Slide left
+            backCurrentX = map(progress, 0, 1, BACK_SPRITE_BASE_X, BACK_SPRITE_OFFSCREEN_LEFT_X);
         } else {
-            backCurrentX = BACK_SPRITE_OFFSCREEN_LEFT_X; // Ensure it stays off-screen
+            backCurrentX = BACK_SPRITE_OFFSCREEN_LEFT_X;
         }
     } else if (backTransitionPhase === 'entering') {
         let elapsedTime = millis() - backTransitionStartTime;
         if (elapsedTime < BACK_TRANSITION_DURATION) {
             let progress = elapsedTime / BACK_TRANSITION_DURATION;
-            backCurrentX = map(progress, 0, 1, BACK_SPRITE_OFFSCREEN_LEFT_X, BACK_SPRITE_ORIGINAL_X); // Slide right
+            backCurrentX = map(progress, 0, 1, BACK_SPRITE_OFFSCREEN_LEFT_X, BACK_SPRITE_BASE_X);
         } else {
-            backCurrentX = BACK_SPRITE_ORIGINAL_X; // Ensure it ends at original position
-            backTransitionPhase = 'idle'; // Animation complete
+            backCurrentX = BACK_SPRITE_BASE_X;
+            backTransitionPhase = 'idle';
         }
-    } else { // 'idle' phase
-        backCurrentX = BACK_SPRITE_ORIGINAL_X;
+    } else {
+        backCurrentX = BACK_SPRITE_BASE_X;
     }
 
   // Determine if defending sprite should be drawn based on hit animation
@@ -195,8 +306,8 @@ function draw() {
   if (isAnimatingHit) {
       let elapsedTime = millis() - hitAnimationStartTime;
       if (elapsedTime < hitAnimationDuration) {
-          let flashCycleTime = elapsedTime % (2 * flashInterval); // On-off cycle (e.g., 0-99ms on, 100-199ms off)
-          if (flashCycleTime >= flashInterval) { // If in the "off" part of the cycle
+          let flashCycleTime = elapsedTime % (2 * flashInterval);
+          if (flashCycleTime >= flashInterval) {
               if (defendingPokemon === 'front') {
                   drawFrontSprite = false;
               } else if (defendingPokemon === 'back') {
@@ -204,65 +315,136 @@ function draw() {
               }
           }
       } else {
-          isAnimatingHit = false; // Hit animation finished
-          defendingPokemon = null; // Reset defender flag
+          isAnimatingHit = false;
+          defendingPokemon = null;
       }
   }
 
-  // 5.2) draw background & sprites
-  image(bg, 0, 0, 160 * size_ratio, 144 * size_ratio);
-  // Draw back sprite: its x position is affected by its slide transition AND attack animation
-  if (backSprite && backCurrentX > (BACK_SPRITE_OFFSCREEN_LEFT_X - 5) && drawBackSprite) {
-    // Add the attack animation offset to the current transition X
-    image(backSprite,  (backCurrentX + currentBackSpriteXForAttack - BACK_SPRITE_ORIGINAL_X) * size_ratio, 43 * size_ratio, 50 * size_ratio, 50 * size_ratio);
+  // Set blend mode to ensure transparency (just before drawing sprites)
+  blendMode(BLEND);
+
+  // Draw sprites using their now absolute pixel positions and dimensions
+  if (backSprite && backCurrentX > (BACK_SPRITE_OFFSCREEN_LEFT_X - BACK_SPRITE_W) && drawBackSprite) {
+    // Combine base transition X with the attack animation offset.
+    image(backSprite,  backCurrentX + (currentBackSpriteDrawX - BACK_SPRITE_BASE_X), BACK_SPRITE_BASE_Y, BACK_SPRITE_W, BACK_SPRITE_H);
   }
-  // Draw front sprite only if it exists and is above the off-screen threshold, and not hidden by flash
-  if (frontSprite && frontCurrentY > (FRONT_SPRITE_OFFSCREEN_TOP_Y - 5) && drawFrontSprite) {
-    image(frontSprite, currentFrontSpriteX * size_ratio, frontCurrentY * size_ratio, 40 * size_ratio, 40 * size_ratio);
+  if (frontSprite && frontCurrentY > (FRONT_SPRITE_OFFSCREEN_TOP_Y - FRONT_SPRITE_H) && drawFrontSprite) {
+    // Combine base transition Y with the attack animation offset.
+    image(frontSprite, currentFrontSpriteDrawX, frontCurrentY, FRONT_SPRITE_W, FRONT_SPRITE_H);
   }
 
-  // 5.3) UI overlays
+  // UI overlays
   drawNames();
   drawHp();
   drawClock();
 
-  // 5.4) Winner display logic
+  // Winner display logic
   if (winner && millis() - winnerDisplayTime < winnerDisplayDuration) {
     drawWinnerText();
     animateWinnerHp();
   }
 
   // Battle logic: Only allow takeTurn if battle is active AND not currently processing battle end
-  // Added a small buffer (50ms) after battleEndedTimestamp to prevent race conditions after battle ends
-  if (battleActive && !processingBattleEnd && millis() - lastTurnTime > turnInterval && millis() - battleEndedTimestamp > 50) {
+  if (battleActive && !processingBattleEnd && !turnLock && millis() - lastTurnTime > turnInterval && millis() - battleEndedTimestamp > 50) {
     takeTurn();
     lastTurnTime = millis();
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 5.2) drawDayScreen — renders the day of the week UI
+// ─────────────────────────────────────────────────────────────────────────────
+function drawDayScreen() {
+    // Background is now part of the 160x144 canvas.
+    image(bg, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // Draw background image (must be 160x144 pixels)
+
+    // --- Draw the central "Day" display box ---
+    noFill();
+    stroke(0);
+    strokeWeight(2);
+    rect(DAY_BOX_X, DAY_BOX_Y, DAY_BOX_WIDTH, DAY_BOX_HEIGHT, HP_BAR_RADIUS);
+
+    fill(0);
+    noStroke();
+
+    textSize(DAY_TEXT_SIZE_LABEL);
+    text("DAY:", DAY_BOX_X + DAY_BOX_WIDTH / 2, DAY_BOX_Y + (DAY_TEXT_SIZE_LABEL / 2) + 2);
+
+    textSize(DAY_TEXT_SIZE_DAY);
+    let currentDayIndex = new Date().getDay();
+    const days = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+    text(days[currentDayIndex], DAY_BOX_X + DAY_BOX_WIDTH / 2, DAY_BOX_Y + DAY_BOX_HEIGHT - (DAY_TEXT_SIZE_DAY / 2) - 2);
+
+    drawClock();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5.3) drawPokedexScreen — renders the Pokedex entry UI
+// ─────────────────────────────────────────────────────────────────────────────
+function drawPokedexScreen() {
+    // Background is now part of the 160x144 canvas.
+    image(bg, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // Draw background image (must be 160x144 pixels)
+
+    fill(0);
+    noStroke();
+    textAlign(CENTER, CENTER);
+
+    textSize(POKEDEX_TITLE_TEXT_SIZE);
+    text("POKEDEX ENTRY", POKEDEX_TITLE_X, POKEDEX_TITLE_Y);
+
+    if (isLoadingPokedex) {
+        textSize(POKEDEX_LOADING_TEXT_SIZE);
+        text("LOADING...", POKEDEX_LOADING_TEXT_X, POKEDEX_LOADING_TEXT_Y);
+    } else {
+        textAlign(LEFT, TOP);
+        textSize(POKEDEX_TEXT_SIZE);
+
+        let words = pokedexEntryText.split(' ');
+        let currentLine = '';
+        let y = POKEDEX_TEXT_START_Y;
+
+        for (let i = 0; i < words.length; i++) {
+            let testLine = currentLine + words[i] + ' ';
+            if (textWidth(testLine) < POKEDEX_TEXT_WIDTH_LIMIT) {
+                currentLine = testLine;
+            } else {
+                text(currentLine, POKEDEX_TEXT_START_X, y);
+                currentLine = words[i] + ' ';
+                y += textSize() + 4;
+            }
+        }
+        text(currentLine, POKEDEX_TEXT_START_X, y);
+
+        if (millis() - pokedexEntryLoadedTime > POKEDEX_DISPLAY_DURATION) {
+            currentScreen = 'battle';
+            pokedexEntryText = "Loading Pokedex Entry...";
+        }
+    }
+    drawClock();
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 6) DRAW NAMES — trims & aligns both front/back names
 // ─────────────────────────────────────────────────────────────────────────────
 
 function drawNames() {
-  textSize(6 * size_ratio);
+  textSize(HP_LABEL_TEXT_SIZE);
   fill(0);
   noStroke();
 
-  // FRONT (opponent) name: left-aligned, trimmed to fit box
   textAlign(LEFT, TOP);
   {
     let s    = frontName || '';
-    const maxW = (FRONT_NAME_END_X - FRONT_NAME_START_X) * size_ratio;
+    const maxW = (FRONT_NAME_END_X - FRONT_NAME_START_X);
     while (textWidth(s) > maxW && s.length) {
       s = s.slice(0, -1);
     }
-    text(s, FRONT_NAME_START_X * size_ratio, FRONT_NAME_Y * size_ratio);
+    text(s, FRONT_NAME_START_X, FRONT_NAME_Y);
   }
 
-  // BACK (your Pokémon) name: right-aligned
   textAlign(RIGHT, TOP);
-  text(backName || '', BACK_NAME_END_X * size_ratio, BACK_NAME_Y * size_ratio);
+  text(backName || '', BACK_NAME_END_X, BACK_NAME_Y);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -270,23 +452,23 @@ function drawNames() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function drawHp() {
-  textSize(6 * size_ratio);
+  textSize(HP_LABEL_TEXT_SIZE);
   fill(0);
   textAlign(RIGHT, TOP);
 
-  text('HP', 28 * size_ratio, 19 * size_ratio);
-  text('HP', 88 * size_ratio, 78 * size_ratio);
+  text('HP', FRONT_HP_LABEL_X, FRONT_HP_LABEL_Y);
+  text('HP', BACK_HP_LABEL_X, BACK_HP_LABEL_Y);
 
-  drawHpBar(30 * size_ratio, 19 * size_ratio, 50 * size_ratio, 5 * size_ratio, hpFront);
-  drawHpBar(90 * size_ratio, 78 * size_ratio, 50 * size_ratio, 5 * size_ratio, hpBack);
+  drawHpBar(FRONT_HP_BAR_X, FRONT_HP_BAR_Y, HP_BAR_W, HP_BAR_H, hpFront);
+  drawHpBar(BACK_HP_BAR_X, BACK_HP_BAR_Y, HP_BAR_W, HP_BAR_H, hpBack);
 }
 
 function drawHpBar(x, y, w, h, pct) {
   pct = constrain(pct, 0, 1);
   noStroke(); fill(100);
-  rect(x, y, pct * w, h, h);
+  rect(x, y, pct * w, h, HP_BAR_RADIUS);
   noFill(); stroke(0); strokeWeight(1);
-  rect(x, y, w,    h, h);
+  rect(x, y, w,    h, HP_BAR_RADIUS);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -294,22 +476,46 @@ function drawHpBar(x, y, w, h, pct) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function drawClock() {
-  textSize(24 * size_ratio);
+  textSize(CLOCK_TEXT_SIZE);
   textAlign(CENTER, CENTER);
   fill(0);
 
   const hrs  = nf(hour(),   2),
         mins = nf(minute(), 2);
 
-  // y = 120 to stay inside the bottom border
-  text(`${hrs}:${mins}`, 80 * size_ratio, 120 * size_ratio);
+  text(`${hrs}:${mins}`, CLOCK_X_POS, CLOCK_Y_POS);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 9) startNewBattle — handles pokemon selection & transition
 // ─────────────────────────────────────────────────────────────────────────────
 
-// This function starts the entire new battle sequence including transitions
+function getNextFrontPokemonData() {
+    let newFrontP;
+    if (winner && lastWinnerPosition === 'front') {
+        newFrontP = winner;
+    } else {
+        let i;
+        do { i = floor(random(pokemonList.length)); }
+        while ((backPokemonData && pokemonList[i].name === backPokemonData.name) || (winner && lastWinnerPosition === 'back' && pokemonList[i].name === winner.name));
+        newFrontP = pokemonList[i];
+    }
+    return newFrontP;
+}
+
+function getNextBackPokemonData() {
+    let newBackP;
+    if (winner && lastWinnerPosition === 'back') {
+        newBackP = winner;
+    } else {
+        let j;
+        do { j = floor(random(pokemonList.length)); }
+        while ((frontPokemonData && pokemonList[j].name === frontPokemonData.name) || (winner && lastWinnerPosition === 'front' && pokemonList[j].name === winner.name));
+        newBackP = pokemonList[j];
+    }
+    return newBackP;
+}
+
 function startNewBattle() {
   if (pokemonList.length === 0) return;
 
@@ -317,54 +523,41 @@ function startNewBattle() {
   let shouldFrontAnimateExit = false;
   let shouldBackAnimateExit = false;
 
-  // --- 1. Determine which Pokémon will be in the next battle and if they should animate ---
   if (winner) {
-      if (lastWinnerPosition === 'front') { // Front Pokémon won, so Front stays. Back is replaced.
+      if (lastWinnerPosition === 'front') {
           nextFrontPokemon = winner;
-          shouldBackAnimateExit = true; // Old Back Pokémon needs to exit
-
-          // Pick a new back Pokémon distinct from the staying front
+          shouldBackAnimateExit = true;
           let newBackPIndex;
           do { newBackPIndex = floor(random(pokemonList.length)); }
           while (pokemonList[newBackPIndex].name === nextFrontPokemon.name);
           nextBackPokemon = pokemonList[newBackPIndex];
-
-      } else { // Back Pokémon won, so Back stays. Front is replaced.
+      } else {
           nextBackPokemon = winner;
-          shouldFrontAnimateExit = true; // Old Front Pokémon needs to exit
-
-          // Pick a new front Pokémon distinct from the staying back
+          shouldFrontAnimateExit = true;
           let newFrontPIndex;
           do { newFrontPIndex = floor(random(pokemonList.length)); }
           while (pokemonList[newFrontPIndex].name === nextBackPokemon.name);
           nextFrontPokemon = pokemonList[newFrontPIndex];
       }
-      // Consume winner and lastWinnerPosition now that they've been used
       winner = null;
       lastWinnerPosition = null;
-  } else { // Initial load or double KO (no explicit winner), both are replaced.
+  } else {
       shouldFrontAnimateExit = true;
       shouldBackAnimateExit = true;
-
-      // Pick two distinct random Pokémon
       let i = floor(random(pokemonList.length)), j;
       do { j = floor(random(pokemonList.length)); } while (j === i);
       nextFrontPokemon = pokemonList[i];
       nextBackPokemon = pokemonList[j];
   }
 
-  // Assign to actual battle data
   frontPokemonData = nextFrontPokemon;
   backPokemonData = nextBackPokemon;
 
-  // Set names and HP for new Pokémon immediately when their data is known
   frontName = frontPokemonData.name;
   hpFront = 1;
   backName = backPokemonData.name;
   hpBack = 1;
 
-  // Reset general battle state flags here to be ready for the new battle,
-  // before any specific sprite loading/animation logic.
   battleActive = true;
   processingBattleEnd = false;
   currentTurn = floor(random(2));
@@ -374,28 +567,26 @@ function startNewBattle() {
   hitAnimationTriggered = false;
   isAnimatingHit = false;
   defendingPokemon = null;
-  battleEndedTimestamp = 0; // Reset timestamp for new battle
-
-
-  // --- 2. Initiate Sprite Transitions and Loading ---
+  battleEndedTimestamp = 0;
+  turnLock = false;
 
   // Handle Back Sprite Transition
   if (shouldBackAnimateExit) {
       backTransitionPhase = 'exiting';
       backTransitionStartTime = millis();
-
-      // Schedule new back sprite to load and enter after exit animation
       setTimeout(() => {
+          // Sprite image file must be 50x50px
           loadImage(`back/${backPokemonData.file}`, img => {
               backSprite = img;
               backTransitionPhase = 'entering';
               backTransitionStartTime = millis();
           }, () => console.warn(`⚠ back/${backPokemonData.file} failed`));
       }, BACK_TRANSITION_DURATION);
-  } else { // Back Pokémon stays (winner or initial load where no old sprite exists yet)
-      loadImage(`back/${backPokemonData.file}`, img => { // Load the staying sprite if not already loaded, or re-assign
+  } else {
+      // Sprite image file must be 50x50px
+      loadImage(`back/${backPokemonData.file}`, img => {
           backSprite = img;
-          backTransitionPhase = 'idle'; // It just stays in place (no enter animation)
+          backTransitionPhase = 'idle';
       }, () => console.warn(`⚠ back/${backPokemonData.file} failed`));
   }
 
@@ -403,19 +594,19 @@ function startNewBattle() {
   if (shouldFrontAnimateExit) {
       frontTransitionPhase = 'exiting';
       frontTransitionStartTime = millis();
-
-      // Schedule new front sprite to load and enter after exit animation
       setTimeout(() => {
+          // Sprite image file must be 40x40px
           loadImage(`front/${frontPokemonData.file}`, img => {
               frontSprite = img;
               frontTransitionPhase = 'entering';
               frontTransitionStartTime = millis();
-          }, () => console.warn(`⚠ front/${frontPokemonData.file} failed`));
+          }, () => console.warn(`⚠ front/${pokemonData.file} failed`));
       }, FRONT_TRANSITION_DURATION);
-  } else { // Front Pokémon stays (winner or initial load where no old sprite exists yet)
-      loadImage(`front/${frontPokemonData.file}`, img => { // Load the staying sprite if not already loaded, or re-assign
+  } else {
+      // Sprite image file must be 40x40px
+      loadImage(`front/${frontPokemonData.file}`, img => {
           frontSprite = img;
-          frontTransitionPhase = 'idle'; // It just stays in place (no enter animation)
+          frontTransitionPhase = 'idle';
       }, () => console.warn(`⚠ front/${frontPokemonData.file} failed`));
   }
 }
@@ -424,72 +615,83 @@ function startNewBattle() {
 // 10) takeTurn — simulate a battle turn
 // ─────────────────────────────────────────────────────────────────────────────
 function takeTurn() {
-  // Defensive check: If battle is already over or ending, don't proceed with a new attack.
+  if (turnLock) {
+    console.log("Turn locked, preventing re-entry.");
+    return;
+  }
+  turnLock = true;
+
   if (!battleActive || processingBattleEnd) {
+    turnLock = false;
     return;
   }
 
-  // Initiate attack animation
   isAnimatingAttack = true;
   attackAnimationStartTime = millis();
-  hitAnimationTriggered = false; // Reset for this new attack
+  hitAnimationTriggered = false;
 
-  let damageAmount = random(0.1, 0.3); // Damage between 10% and 30% of HP
+  let damageAmount = random(0.1, 0.3);
 
-  if (currentTurn === 0) { // Front Pokémon (opponent) attacks
-    attackingPokemon = 'front'; // Set attacker for animation
-    defendingPokemon = 'back';  // Set defender for hit animation
+  if (currentTurn === 0) {
+    attackingPokemon = 'front';
+    defendingPokemon = 'back';
     hpBack -= damageAmount;
     hpBack = constrain(hpBack, 0, 1);
     console.log(`${frontName} attacked! ${backName} HP: ${nf(hpBack * 100, 0, 0)}%`);
-  } else { // Back Pokémon (your Pokémon) attacks
-    attackingPokemon = 'back'; // Set attacker for animation
-    defendingPokemon = 'front'; // Set defender for hit animation
+  } else {
+    attackingPokemon = 'back';
+    defendingPokemon = 'front';
     hpFront -= damageAmount;
     hpFront = constrain(hpFront, 0, 1);
     console.log(`${backName} attacked! ${frontName} HP: ${nf(hpFront * 100, 0, 0)}%`);
   }
 
-  // Check for battle end
   if (hpFront <= 0 || hpBack <= 0) {
     battleActive = false;
-    processingBattleEnd = true; // Set flag to true immediately
+    processingBattleEnd = true;
     winnerDisplayTime = millis();
-    battleEndedTimestamp = millis(); // Mark the time battle ended
+    battleEndedTimestamp = millis();
 
     if (hpFront <= 0 && hpBack <= 0) {
       console.log("Both Pokémon fainted! New battle starts.");
-      winner = null; // No clear winner if both faint
+      winner = null;
       lastWinnerPosition = null;
-    } else if (hpFront <= 0) { // Front fainted, Back (your) Pokémon wins
+    } else if (hpFront <= 0) {
       console.log(`${backName} wins!`);
       winner = backPokemonData;
       lastWinnerPosition = 'back';
-      winnerHpFillStart = hpBack; // Store starting HP for animation
-    } else { // Back fainted, Front (opponent) Pokémon wins
+      winnerHpFillStart = hpBack;
+    } else {
       console.log(`${frontName} wins!`);
       winner = frontPokemonData;
       lastWinnerPosition = 'front';
-      winnerHpFillStart = hpFront; // Store starting HP for animation
+      winnerHpFillStart = hpFront;
     }
 
-    // Schedule the loading of new Pokémon after a delay, now using startNewBattle
     setTimeout(startNewBattle, 3000);
-    return; // Crucial: Stop further execution in this turn after battle end.
+    return;
   } else {
-    currentTurn = 1 - currentTurn; // Switch turns
+    currentTurn = 1 - currentTurn;
+    turnLock = false;
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 11) MOUSE CLICKED — click on canvas to manually force a turn
+// 11) MOUSE CLICKED — cycles through screens, or forces turn on battle screen
 // ─────────────────────────────────────────────────────────────────────────────
 
 function mouseClicked() {
-  // Only allow forced turn if battle is active and not processing battle end AND not just ended
-  if (battleActive && !processingBattleEnd && millis() - battleEndedTimestamp > 50) {
-    takeTurn();
-    lastTurnTime = millis(); // Reset the timer so the next *timed* turn is 5 minutes from now
+  if (currentScreen === 'battle') {
+    if (battleActive && !processingBattleEnd && !turnLock && millis() - battleEndedTimestamp > 50) {
+      takeTurn();
+      lastTurnTime = millis();
+    }
+  } else if (currentScreen === 'day') {
+    currentScreen = 'pokedex';
+    fetchPokedexEntry(frontPokemonData.name);
+  } else if (currentScreen === 'pokedex') {
+    currentScreen = 'battle';
+    pokedexEntryText = "Loading Pokedex Entry...";
   }
 }
 
@@ -499,10 +701,17 @@ function mouseClicked() {
 function drawWinnerText() {
   if (!winner) return;
 
-  textSize(15);
+  // REMOVED: Draw background box for winner text
+  // fill(220); // Light grey background
+  // stroke(0); // Black border
+  // strokeWeight(1); // Thin border
+  // rect(WINNER_BOX_X, WINNER_BOX_Y, WINNER_BOX_WIDTH, WINNER_BOX_HEIGHT, HP_BAR_RADIUS);
+
+  textSize(WINNER_TEXT_SIZE);
   textAlign(CENTER, CENTER);
-  fill(0);
-  text(`${winner.name} Wins!`, 80 * size_ratio, 103 * size_ratio);
+  fill(0); // Black text
+  noStroke(); // No stroke for text itself
+  text(`${winner.name} Wins!`, WINNER_TEXT_X, WINNER_TEXT_Y);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -514,8 +723,47 @@ function animateWinnerHp() {
     fillPercentage = constrain(fillPercentage, 0, 1);
 
     if (lastWinnerPosition === 'front') {
-        hpFront = fillPercentage; // Update hpFront for drawing
+        hpFront = fillPercentage;
     } else if (lastWinnerPosition === 'back') {
-        hpBack = fillPercentage; // Update hpBack for drawing
+        hpBack = fillPercentage;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 14) fetchPokedexEntry — Calls Gemini API for Pokedex entry
+// ─────────────────────────────────────────────────────────────────────────────
+async function fetchPokedexEntry(pokemonName) {
+    isLoadingPokedex = true;
+    pokedexEntryText = "LOADING...";
+
+    const prompt = `Give a very brief, 1-sentence Pokedex entry for ${pokemonName}, similar to what would be found in a Gen 1 Pokémon game. Focus on a key characteristic.`;
+    let chatHistory = [];
+    chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+    const payload = { contents: chatHistory };
+    const apiKey = "";
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+
+        if (result.candidates && result.candidates.length > 0 &&
+            result.candidates[0].content && result.candidates[0].content.parts &&
+            result.candidates[0].content.parts.length > 0) {
+            pokedexEntryText = result.candidates[0].content.parts[0].text;
+        } else {
+            pokedexEntryText = "ERROR: Could not fetch entry.";
+            console.error("Gemini API response structure unexpected:", result);
+        }
+    } catch (error) {
+        pokedexEntryText = "ERROR: Network or API issue.";
+        console.error("Error fetching Pokedex entry:", error);
+    } finally {
+        isLoadingPokedex = false;
+        pokedexEntryLoadedTime = millis();
     }
 }
