@@ -27,10 +27,10 @@ const FRONT_NAME_Y       = 7;
 
 // Sprite dimensions and base positions (1x Game Boy logical space):
 // IMPORTANT: Your sprite image files must be pre-scaled to these exact pixel dimensions.
-const BACK_SPRITE_W = 50;   // Player's Pokémon (original size)
-const BACK_SPRITE_H = 50;
-const BACK_SPRITE_BASE_X = 10;
-const BACK_SPRITE_BASE_Y = 50;
+const BACK_SPRITE_W = 70;   // Player's Pokémon (original size)
+const BACK_SPRITE_H = 70;
+const BACK_SPRITE_BASE_X = 2;
+const BACK_SPRITE_BASE_Y = 40;
 
 const FRONT_SPRITE_W = 50;  // Opponent's Pokémon (original size)
 const FRONT_SPRITE_H = 50;
@@ -62,9 +62,10 @@ const CLOCK_X_POS = 80;    // Center of 160
 const CLOCK_Y_POS = 121;
 
 // Winner text position and size (1x Game Boy logical space):
-const WINNER_TEXT_SIZE = 10; // Changed to 10 as requested
+const WINNER_TEXT_SIZE = 10;
 const WINNER_TEXT_X = 80;
-const WINNER_TEXT_Y = CLOCK_Y_POS; // Align winner text with clock position
+const WINNER_TEXT_Y = CLOCK_Y_POS - (WINNER_TEXT_SIZE / 2); // Adjusted for two lines
+const WINNER_TEXT_LINE_HEIGHT = WINNER_TEXT_SIZE + 2; // Added a small gap between lines
 
 // Winner text box dimensions (These constants are now only for reference/history, not used for drawing)
 const WINNER_BOX_WIDTH = 100;
@@ -164,7 +165,7 @@ let showTime = true;
 
 // NEW: Winner text flashing variables
 let isFlashingWinnerText = false;
-const winnerFlashInterval = 150; // Milliseconds for each flash (on/off)
+const winnerFlashInterval = 300; // Increased to 300 milliseconds for slower flash (on/off)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 3) PRELOAD — load BG, FONT, & JSON roster
@@ -731,7 +732,10 @@ function drawWinnerText() {
   textAlign(CENTER, CENTER);
   fill(0); // Black text
   noStroke(); // No stroke for text itself
-  text(`${winner.name} Wins!`, WINNER_TEXT_X, WINNER_TEXT_Y);
+
+  // Split winner text over two lines, all caps
+  text(winner.name.toUpperCase(), WINNER_TEXT_X, WINNER_TEXT_Y);
+  text("WINS!", WINNER_TEXT_X, WINNER_TEXT_Y + WINNER_TEXT_LINE_HEIGHT);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
