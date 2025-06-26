@@ -15,6 +15,9 @@ const CANVAS_HEIGHT = 144;
 // as the hardware drivers will handle the final scaling.
 const DISPLAY_ZOOM_FACTOR = 3;
 
+// Overlay transparency (0-255, where 255 is opaque)
+const OVERLAY_ALPHA = 255; // Example: 50% transparency
+
 // All coordinates and sizes below are now in raw 1x Game Boy logical pixel values.
 
 // Name-box coordinates (1x Game Boy logical space):
@@ -27,15 +30,15 @@ const FRONT_NAME_Y       = 7;
 
 // Sprite dimensions and base positions (1x Game Boy logical space):
 // IMPORTANT: Your sprite image files must be pre-scaled to these exact pixel dimensions.
-const BACK_SPRITE_W = 70;   // Player's Pokémon (original size)
-const BACK_SPRITE_H = 70;
-const BACK_SPRITE_BASE_X = 2;
-const BACK_SPRITE_BASE_Y = 40;
+const BACK_SPRITE_W = 80;   // Player's Pokémon (original size)
+const BACK_SPRITE_H = 80;
+const BACK_SPRITE_BASE_X = 0;
+const BACK_SPRITE_BASE_Y = 35;
 
-const FRONT_SPRITE_W = 50;  // Opponent's Pokémon (original size)
-const FRONT_SPRITE_H = 50;
-const FRONT_SPRITE_BASE_X = 98;
-const FRONT_SPRITE_BASE_Y = 10;
+const FRONT_SPRITE_W = 90;  // Opponent's Pokémon (original size)
+const FRONT_SPRITE_H = 90;
+const FRONT_SPRITE_BASE_X = 77;
+const FRONT_SPRITE_BASE_Y = -15;
 
 // HP Bar dimensions and positions (1x Game Boy logical space):
 const HP_LABEL_TEXT_SIZE = 6; 
@@ -58,12 +61,12 @@ const HP_BAR_RADIUS = 2.5; // Half of HP_BAR_H for rounding
 
 // Clock position and text size (1x Game Boy logical space):
 const CLOCK_TEXT_SIZE = 24;
-const CLOCK_X_POS = 80;    // Center of 160
-const CLOCK_Y_POS = 121;
+const CLOCK_X_POS = 82;    // Center of 160
+const CLOCK_Y_POS = 117;
 
 // Winner text position and size (1x Game Boy logical space):
 const WINNER_TEXT_SIZE = 10;
-const WINNER_TEXT_X = 80;
+const WINNER_TEXT_X = 82;
 const WINNER_TEXT_Y = CLOCK_Y_POS - (WINNER_TEXT_SIZE / 2); // Adjusted for two lines
 const WINNER_TEXT_LINE_HEIGHT = WINNER_TEXT_SIZE + 2; // Added a small gap between lines
 
@@ -99,6 +102,7 @@ const POKEDEX_TEXT_START_Y = 40;
 // ─────────────────────────────────────────────────────────────────────────────
 
 let bg; // Background image (must be 160x144 pixels)
+let overlay; // Declare a variable for the overlay image
 let pokemonList = [];      // loaded in preload()
 let gameboyFont; // Variable to hold the loaded font
 
@@ -176,11 +180,14 @@ function preload() {
   bg = loadImage('bg.png');
 
   // 3.2) Load the custom Game Boy font
-  // Ensure 'PressStart2P-Regular.ttf' is in the same directory as sketch.js
-  gameboyFont = loadFont('PressStart2P-Regular.ttf'); 
+  // Ensure 'pokemon-gsc-font.ttf' is in the same directory as sketch.js
+  gameboyFont = loadFont('pokemon-gsc-font.ttf'); 
 
   // 3.3) synchronous JSON load (blocks until parsed)
   pokemonList = loadJSON('pokemonList.json');
+
+  // 3.4) Load the overlay image
+  overlay = loadImage('overlay.png');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -224,6 +231,11 @@ function draw() {
       drawPokedexScreen();
       break;
   }
+
+  // Draw the overlay with transparency
+  tint(255, OVERLAY_ALPHA); // Apply transparency
+  image(overlay, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // Draw the overlay
+  noTint(); // Reset tint so it doesn't affect subsequent drawings
 
   pop(); // Restore original transformation state
 }
